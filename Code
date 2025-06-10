@@ -1,0 +1,260 @@
+---
+
+SECTION 1: Imports and Setup
+
+import os
+import time
+import threading
+import requests
+from flask import Flask, render_template, Response, jsonify
+from picamera2 import Picamera2
+import cv2
+import numpy as np
+import torch
+from gpiozero import Button, LED
+
+What It Does:
+
+os, time, threading: Used for system functions, delays, and running functions concurrently.
+
+requests: To make HTTP requests (e.g., get location, send data to Telegram).
+
+flask: For creating a simple web server and endpoints.
+
+picamera2: To access and control Raspberry Pi Camera v2.
+
+cv2 (OpenCV): For image processing and video recording.
+
+numpy: Array processing.
+
+torch: To load the YOLOv5 object detection model.
+
+gpiozero: For interacting with physical GPIO pins (button, buzzer).
+
+
+
+---
+
+SECTION 2: Telegram Bot Configuration
+
+BOT_TOKEN = '...'
+CHAT_ID = '...'
+
+What It Does:
+
+Stores your Telegram bot token and chat ID to send messages and videos using the Telegram Bot API.
+
+
+
+---
+
+SECTION 3: Camera Initialization
+
+picam2 = Picamera2()
+video_config = picam2.create_video_configuration(main={"size": (640, 480)})
+picam2.configure(video_config)
+picam2.start()
+
+What It Does:
+
+Initializes the PiCamera2 instance.
+
+Sets the video resolution to 640x480.
+
+Configures and starts the camera to begin streaming frames.
+
+
+
+---
+
+SECTION 4: Load YOLOv5 Model
+
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+
+What It Does:
+
+Downloads and loads the pre-trained YOLOv5s model using Torch Hub.
+
+yolov5s is the smallest and fastest version (ideal for edge devices like Raspberry Pi).
+
+
+
+---
+
+SECTION 5: Flask Web App Setup
+
+app = Flask(_name_)
+sos_sent = False
+
+What It Does:
+
+Starts a Flask application (app).
+
+sos_sent: A flag to prevent multiple SOS triggers at once.
+
+
+
+---
+
+SECTION 6: GPIO Setup
+
+button = Button(17)
+buzzer = LED(27)
+
+What It Does:
+
+Initializes a Button on GPIO pin 17.
+
+Initializes a Buzzer (or LED) on GPIO pin 27.
+
+LED class is used since it allows simple on/off control for the buzzer.
+
+
+
+---
+
+SECTION 7: Button Event Listener
+
+def button_pressed():
+    global sos_sent
+    if not sos_sent:
+        sos_sent = True
+        threading.Thread(target=send_sos_and_activate_buzzer).start()
+
+button.when_pressed = button_pressed
+
+What It Does:
+
+When the physical button is pressed:
+
+If sos_sent is False, it:
+
+Sets it to True.
+
+Starts a new thread to run send_sos_and_activate_buzzer (so it doesn't block the app).
+
+
+
+
+
+---
+
+SECTION 8: Location Detection
+
+def get_location():
+    try:
+        res = requests.get('https://ipinfo.io/json')
+        data = res.json()
+        loc = data['loc']
+        return loc.split(',')
+    except Exception as e:
+        print(f"[ERROR] Location fetch failed: {e}")
+        return None, None
+
+What It Does:
+
+Fetches approximate location using ipinfo.io.
+
+Returns latitude and longitude.
+
+If failed, prints an error and returns None.
+
+
+
+---
+
+SECTION 9: Send SOS + Activate Buzzer
+
+def send_sos_and_activate_buzzer():
+    ...
+
+Step-by-Step Process:
+
+1. Activates buzzer for 10 seconds (buzzer.on() + time.sleep(10)).
+
+
+2. Records a 10-second video from the Pi camera using OpenCV.
+
+Converts RGB to BGR (cv2.cvtColor) because OpenCV uses BGR format.
+
+
+
+3. Saves the video to disk as sos_video.mp4.
+
+
+4. Sends the recorded video to Telegram using the Bot API.
+
+
+5. Fetches location and sends Google Maps link via Telegram.
+
+
+6. Finally, resets the sos_sent flag.
+
+
+
+
+---
+
+SECTION 10: Generate Frames for Video Streaming
+
+def generate_frames():
+    ...
+
+What It Does:
+
+Continuously:
+
+Captures a frame from the camera.
+
+Runs YOLOv5 detection on it.
+
+Loops through each detected object:
+
+Draws a rectangle and label (class name + confidence score).
+
+
+Converts the frame to JPEG and yields it to the browser.
+
+
+
+
+---
+
+SECTION 11: Flask Routes
+
+@app.route('/')
+def index():
+    return render_template('index1.html')
+
+Loads the homepage (index1.html), which should include the video stream.
+
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+Streams the annotated video feed in Motion JPEG format.
+
+
+@app.route('/send_sos', methods=['POST'])
+def handle_sos():
+    ...
+
+API endpoint to trigger SOS remotely (via web button).
+
+Uses the same logic as button press to avoid duplicate SOS.
+
+
+
+---
+
+SECTION 12: App Start
+
+if _name_ == '_main_':
+    app.run(host='0.0.0.0', port=5000)
+
+What It Does:
+
+Runs the Flask app on port 5000.
+
+Accessible on the local network using the Raspberry Pi’s IP address.
